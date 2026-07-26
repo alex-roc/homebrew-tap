@@ -23,7 +23,7 @@ brew uninstall zotero-agent   # config/state live outside the keg, see the guide
 ## How this tap stays current
 
 Nothing here is written by hand. The formula is generated in the main repo
-(`scripts/gen_homebrew_formula.py`) from the sdist each release publishes to
-PyPI, and `.github/workflows/sync.yml` mirrors it here on a schedule, then
-installs and tests it on macOS. Report issues in the
+(`scripts/gen_homebrew_formula.py`) from the sdist each release publishes to PyPI,
+and `.github/workflows/sync.yml` mirrors it here when that release happens, then
+installs and `brew test`s it on macOS before you ever see it. Report issues in the
 [main repo](https://github.com/alex-roc/zotero-agent/issues).
