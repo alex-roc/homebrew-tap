@@ -1,0 +1,67 @@
+name: Sync the formula
+
+# The formula is *generated* in alex-roc/zotero-agent (scripts/gen_homebrew_formula.py,
+# run by its release workflow); this tap only mirrors it. The sync is pull-based
+# on purpose: pushing from that repo would need a stored PAT, and this way the
+# whole route needs no secret at all — just this repo's own GITHUB_TOKEN.
+#
+# Gotcha worth knowing: GitHub disables scheduled workflows in a repo with 60 days
+# of inactivity. A release commits here, which counts — but after a long quiet
+# spell, check this workflow is still enabled (GitHub emails the owner when it
+# disables one). `gh workflow run sync.yml --repo alex-roc/homebrew-tap` syncs now.
+
+on:
+  schedule:
+    - cron: "17 * * * *"     # hourly, off the hour (cron runs are queued, not exact)
+  workflow_dispatch:
+  push:
+    # A formula pushed by hand (the initial bootstrap) has to get verified too:
+    # commits made with GITHUB_TOKEN never trigger workflows, so the verify job
+    # below cannot rely on the sync commit alone.
+    paths: ["Formula/**"]
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.pull.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull the generated formula
+        id: pull
+        run: |
+          curl -fsSL -o Formula/zotero-agent.rb \
+            https://raw.githubusercontent.com/alex-roc/zotero-agent/main/packaging/homebrew/zotero-agent.rb
+          VERSION="$(sed -n 's|.*/zotero_agent-\(.*\)\.tar\.gz".*|\1|p' Formula/zotero-agent.rb)"
+          if git diff --quiet -- Formula/zotero-agent.rb; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Already at $VERSION"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -m "zotero-agent $VERSION" -- Formula/zotero-agent.rb
+            git push
+          fi
+
+  verify:
+    # Install it the way a user does, so a broken formula is caught here and not
+    # by whoever runs `brew install` next. Note `brew audit` is deliberately not
+    # run: this formula installs wheels from a lock instead of declaring a
+    # `resource` per dependency, which is the whole point (see the main repo's
+    # dev-docs/03-releasing.md).
+    needs: sync
+    if: always() && (github.event_name == 'push' || needs.sync.outputs.changed == 'true')
+    runs-on: macos-latest
+    steps:
+      - name: Tap, install, test
+        run: |
+          brew tap alex-roc/tap
+          brew install alex-roc/tap/zotero-agent
+          brew test alex-roc/tap/zotero-agent
+          zot --version
